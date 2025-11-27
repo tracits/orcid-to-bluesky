@@ -1,119 +1,82 @@
 import os
 import time
-from datetime import datetime, timedelta, timezone
-
+import yaml
 import requests
+from datetime import datetime, timedelta, timezone
 from atproto import Client
 
 ORCID_API_BASE = "https://pub.orcid.org/v3.0"
 
 
-def get_env(name: str) -> str:
-    value = os.getenv(name)
-    if not value:
-        raise RuntimeError(f"Missing environment variable: {name}")
-    return value
+def load_config():
+    with open("config.yaml", "r", encoding="utf-8") as f:
+        return yaml.safe_load(f)
 
 
-def fetch_works(orcid_id: str):
+def fetch_works(orcid_id):
     url = f"{ORCID_API_BASE}/{orcid_id}/works"
     headers = {"Accept": "application/vnd.orcid+json"}
     r = requests.get(url, headers=headers, timeout=30)
     r.raise_for_status()
-    data = r.json()
-    return data.get("group", []) or []
+    return r.json().get("group", [])
 
 
-def extract_items_last_ndays(orcid_id: str, groups, days: int = 7):
+def filter_recent(groups, days):
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-    items = []
+    results = []
 
     for g in groups:
-        for ws in g.get("work-summary", []) or []:
-            lmd = ws.get("last-modified-date", {})
-            ts = lmd.get("value")
+        for ws in g.get("work-summary", []):
+            ts = ws.get("last-modified-date", {}).get("value")
             if not ts:
                 continue
-            # ORCID timestamp is milliseconds since epoch
+
             dt = datetime.fromtimestamp(int(ts) / 1000, tz=timezone.utc)
             if dt < cutoff:
                 continue
 
-            # title
-            title = ""
-            title_obj = ws.get("title") or {}
-            if isinstance(title_obj, dict):
-                tval = title_obj.get("title") or {}
-                if isinstance(tval, dict):
-                    title = tval.get("value") or ""
-                elif isinstance(tval, str):
-                    title = tval
+            title = ws.get("title", {}).get("title", {}).get("value", "(no title)")
 
-            # DOI (if present)
+            # Try DOI
             url = None
-            ext_ids = ws.get("external-ids", {}) or {}
-            for ext in ext_ids.get("external-id", []) or []:
-                if (ext.get("external-id-type") or "").lower() == "doi":
-                    val = ext.get("external-id-value")
-                    if val:
-                        url = f"https://doi.org/{val}"
-                        break
+            for ext in ws.get("external-ids", {}).get("external-id", []):
+                if ext.get("external-id-type", "").lower() == "doi":
+                    url = "https://doi.org/" + ext.get("external-id-value")
+                    break
 
-            items.append(
-                {
-                    "orcid": orcid_id,
-                    "title": title.strip() or "(no title)",
-                    "url": url,
-                    "last_modified": dt.isoformat(),
-                }
-            )
+            results.append({"title": title, "url": url, "date": dt})
 
-    # Sort newest first
-    items.sort(key=lambda x: x["last_modified"], reverse=True)
-    return items
-
-
-def build_post_text(item):
-    base = f"New publication from {item['orcid']}:\n{item['title']}"
-    if item["url"]:
-        return base + f"\n{item['url']}"
-    return base
+    # newest first
+    return sorted(results, key=lambda x: x["date"], reverse=True)
 
 
 def main():
-    handle = get_env("BLUESKY_HANDLE")
-    app_pw = get_env("BLUESKY_APP_PASSWORD")
-    orcids = [x.strip() for x in get_env("ORCID_IDS").split(",") if x.strip()]
+    cfg = load_config()
 
-    # connect to Bluesky once
     client = Client()
-    client.login(handle, app_pw)
+    client.login(os.getenv("BLUESKY_HANDLE"), os.getenv("BLUESKY_APP_PASSWORD"))
 
-    max_posts_total = int(os.getenv("MAX_POSTS_TOTAL", "10"))
-    days_back = int(os.getenv("DAYS_BACK", "7"))
-
+    max_posts = cfg.get("max_posts_total", 5)
     posted = 0
 
-    for oid in orcids:
-        if posted >= max_posts_total:
+    for oid in cfg["orcid_ids"]:
+        if posted >= max_posts:
             break
 
-        print(f"Checking ORCID {oid}")
-        groups = fetch_works(oid)
-        items = extract_items_last_ndays(oid, groups, days=days_back)
+        print(f"Checking {oid}")
+        items = filter_recent(fetch_works(oid), cfg["days_back"])
 
         for item in items:
-            if posted >= max_posts_total:
+            if posted >= max_posts:
                 break
-            text = build_post_text(item)
+            
+            text = f"New publication from {oid}\n{item['title']}"
+            if item["url"]:
+                text += f"\n{item['url']}"
+
             print("Posting:", text.replace("\n", " | "))
             client.send_post(text)
             posted += 1
-            # tiny delay to be gentle
             time.sleep(1)
 
-    print(f"Done, posted {posted} items.")
-
-
-if __name__ == "__main__":
-    main()
+    print(f"Finished. Posted {posted} items.")
