@@ -1,0 +1,37 @@
+name: ORCID to Bluesky
+
+on:
+  schedule:
+    - cron: "0 7 * * *"   # every day at 07:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  run-orcid-to-bluesky:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run script
+        env:
+          BLUESKY_HANDLE: ${{ secrets.BLUESKY_HANDLE }}
+          BLUESKY_APP_PASSWORD: ${{ secrets.BLUESKY_APP_PASSWORD }}
+          ORCID_IDS: ${{ secrets.ORCID_IDS }}
+          MAX_POSTS_TOTAL: "10"
+          DAYS_BACK: "7"
+        run: |
+          python orcid_to_bluesky.py
