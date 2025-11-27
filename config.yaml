@@ -1,0 +1,9 @@
+# ORCIDs to monitor
+orcid_ids:
+  - "0000-0001-7553-7337"
+
+# Only fetch works newer than N days
+days_back: 1
+
+# Maximum total posts per run
+max_posts_total: 1
