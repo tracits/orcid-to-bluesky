@@ -30,8 +30,5 @@ jobs:
         env:
           BLUESKY_HANDLE: ${{ secrets.BLUESKY_HANDLE }}
           BLUESKY_APP_PASSWORD: ${{ secrets.BLUESKY_APP_PASSWORD }}
-          ORCID_IDS: ${{ secrets.ORCID_IDS }}
-          MAX_POSTS_TOTAL: "10"
-          DAYS_BACK: "7"
         run: |
           python orcid_to_bluesky.py
