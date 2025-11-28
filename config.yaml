@@ -1,9 +1,9 @@
-# ORCIDs to monitor
 orcid_ids:
   - "0000-0001-7553-7337"
+  - "0000-0002-1106-1701"
 
-# Only fetch works newer than N days
-days_back: 40
+days_back: 365
+max_posts_total: 2
 
-# Maximum total posts per run
-max_posts_total: 1
+hashtags:
+  - "research"
