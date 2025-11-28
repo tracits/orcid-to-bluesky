@@ -16,6 +16,35 @@ def load_config():
     return cfg
 
 
+def fetch_orcid_name(orcid_id: str) -> str:
+    """
+    Fetch the display name for an ORCID id from the public ORCID API.
+    Falls back to the ORCID id string if anything goes wrong.
+    """
+    url = f"{ORCID_API_BASE}/{orcid_id}/person"
+    headers = {"Accept": "application/vnd.orcid+json"}
+    print(f"Requesting ORCID person record for {orcid_id}: {url}")
+
+    try:
+        r = requests.get(url, headers=headers, timeout=30)
+        r.raise_for_status()
+        data = r.json()
+    except Exception as e:
+        print(f"  Failed to fetch name for {orcid_id}: {e}")
+        return orcid_id
+
+    name = data.get("name", {}) or {}
+    given = (name.get("given-names", {}) or {}).get("value") or ""
+    family = (name.get("family-name", {}) or {}).get("value") or ""
+
+    full_name = " ".join(part for part in [given, family] if part).strip()
+    if not full_name:
+        full_name = orcid_id
+
+    print(f"  Resolved {orcid_id} to name: {full_name}")
+    return full_name
+
+
 def fetch_works(orcid_id):
     url = f"{ORCID_API_BASE}/{orcid_id}/works"
     headers = {"Accept": "application/vnd.orcid+json"}
@@ -43,7 +72,7 @@ def filter_recent(groups, days):
             if dt < cutoff:
                 continue
 
-            # Title handling a bit more defensively
+            # Title
             title_obj = ws.get("title", {}) or {}
             tval = title_obj.get("title", {}) or {}
             if isinstance(tval, dict):
@@ -84,11 +113,20 @@ def main():
     max_posts = cfg.get("max_posts_total", 5)
     posted = 0
 
+    # Optional small in-memory cache so we only look up each ORCID name once per run
+    name_cache = {}
+
     for oid in cfg["orcid_ids"]:
         if posted >= max_posts:
             break
 
         print(f"\n=== Checking {oid} ===")
+        # resolve name from ORCID
+        if oid not in name_cache:
+            name_cache[oid] = fetch_orcid_name(oid)
+        author_name = name_cache[oid]
+        orcid_profile_url = f"https://orcid.org/{oid}"
+
         groups = fetch_works(oid)
         items = filter_recent(groups, cfg["days_back"])
 
@@ -100,7 +138,10 @@ def main():
             if posted >= max_posts:
                 break
 
-            text = f"New publication from {oid}\n{item['title']}"
+            # Build the Bluesky post text
+            # Name + ORCID profile URL (clickable)
+            text = f"New paper from {author_name} (ORCID: {orcid_profile_url})\n{item['title']}"
+            # DOI link (clickable)
             if item["url"]:
                 text += f"\n{item['url']}"
 
