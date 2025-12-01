@@ -50,11 +50,15 @@ def fetch_works(orcid_id: str):
     url = f"{ORCID_API_BASE}/{orcid_id}/works"
     headers = {"Accept": "application/vnd.orcid+json"}
     print(f"Requesting ORCID works for {orcid_id}: {url}")
-    r = requests.get(url, headers=headers, timeout=30)
-    r.raise_for_status()
-    data = r.json()
-    groups = data.get("group", []) or []
-    print(f"  Retrieved {len(groups)} groups for {orcid_id}")
+    try:
+        r = requests.get(url, headers=headers, timeout=30)
+        r.raise_for_status()
+        data = r.json()
+        groups = data.get("group", []) or []
+        print(f"  Retrieved {len(groups)} groups for {orcid_id}")
+    except Exception as e:
+        print(f"  Failed to fetch works for {orcid_id}: {e}")
+        groups = []
     return groups
 
 
